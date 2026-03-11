@@ -98,12 +98,79 @@ fn draw_line(
         queue!(
             stdout,
             cursor::MoveTo(x.round() as u16, y.round() as u16),
-            style::PrintStyledContent("█".magenta())
+            // style::PrintStyledContent("█".magenta())
+            style::PrintStyledContent("@".magenta())
         )?;
     }
 
     Ok(())
 }
+
+fn sign(p1: (f32, f32), p2: (f32, f32), p3: (f32, f32)) -> f32 {
+    (p1.0 - p3.0) * (p2.1 - p3.1) - (p2.0 - p3.0) * (p1.1 - p3.1)
+}
+
+fn in_triangle(pt: (f32, f32), v1: (f32, f32), v2: (f32, f32), v3: (f32, f32)) -> bool {
+    let d1: f32 = sign(pt, v1, v2);
+    let d2: f32 = sign(pt, v2, v3);
+    let d3: f32 = sign(pt, v3, v1);
+
+    let has_neg: bool = (d1 < 0.0) || (d2 < 0.0) || (d3 < 0.0);
+    let has_pos: bool = (d1 > 0.0) || (d2 > 0.0) || (d3 > 0.0);
+
+    !(has_neg && has_pos)
+
+}
+
+fn draw_faces(
+    stdout: &mut std::io::Stdout, projected: &[Option<(u16, u16)>; 8]
+) -> std::io::Result<()> {
+
+    if let (Some((x0, y0)), Some((x1, y1)), Some((x2, y2))) =
+        (projected[0], projected[1], projected[2])
+    {
+        let x0 = x0 as f32;
+        let y0 = y0 as f32;
+
+        let x1 = x1 as f32;
+        let y1 = y1 as f32;
+
+        let x2 = x2 as f32;
+        let y2 = y2 as f32;
+
+        let minx = x2.min(x0.min(x1));
+        let miny = y2.min(y0.min(y1));
+        let maxx = x2.max(x0.max(x1));
+        let maxy = y2.max(y0.max(y1));
+
+        let dx = maxx - minx;
+        let dy = maxy - miny;
+
+        let steps = dx.abs() as usize;
+        let steps1 = dy.abs() as usize;
+
+        for i in 0..=steps {
+            for i1 in 0..=steps1 {
+                let t = i as f32 / steps as f32;
+                let t1 = i1 as f32 / steps1 as f32;
+                let x = minx + dx * t;
+                let y = miny + dy * t1;
+
+                if !(in_triangle((x,y), (x0,y0), (x1,y1), (x2,y2))) {
+                    continue;
+                }
+                queue!(
+                    stdout,
+                    cursor::MoveTo(x.round() as u16, y.round() as u16),
+                    // style::PrintStyledContent("█".magenta())
+                    style::PrintStyledContent("@".red())
+                )?;
+            }
+        }
+
+    }
+    Ok(())
+} 
 
 const CORNERS: [Vector; 8] = [
     Vector([1.0, 1.0, 1.0]), // 0
@@ -163,6 +230,8 @@ fn main() -> std::io::Result<()> {
                 draw_line(&mut stdout, x0, y0, x1, y1, a ,b)?;
             }
         }
+
+        draw_faces(&mut stdout, &projected)?;
 
         it += 1.0;
         stdout.flush()?;
