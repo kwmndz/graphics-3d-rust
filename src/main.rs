@@ -1,3 +1,4 @@
+use core::f32;
 use std::io::{stdout, Write};
 use std::thread;
 use std::time::Duration;
@@ -48,7 +49,7 @@ fn rotation_matrix(m: &mut Matrix, a: f32, b:f32, c:f32) {
     m.0[2][2] = b_sc.1 * c_sc.1;
 }
 
-fn convert_to_screen(v: &Vector, w: f32, h: f32) -> Option<(u16, u16)> {
+fn convert_to_screen(v: &Vector, w: f32, h: f32) -> Option<(u16, u16, f32)> {
     let [x, y, z] = v.0;
     let scale = 20.0;
     let ooz = 1.0 / z;
@@ -57,7 +58,7 @@ fn convert_to_screen(v: &Vector, w: f32, h: f32) -> Option<(u16, u16)> {
     let sy = h * 0.5 - y * ooz * scale;
 
     if sx >= 0.0 && sx < w && sy >= 0.0 && sy < h {
-        Some((sx as u16, sy as u16))
+        Some((sx as u16, sy as u16, z))
     } else {
         None
     }
@@ -124,11 +125,11 @@ fn in_triangle(pt: (f32, f32), v1: (f32, f32), v2: (f32, f32), v3: (f32, f32)) -
 }
 
 fn draw_faces(
-    stdout: &mut std::io::Stdout, projected: &[Option<(u16, u16)>; 8], 
-    c: (usize, usize, usize), color: Color, depthMap: &mut HashMap<(usize, usize), f32>
+    stdout: &mut std::io::Stdout, projected: &[Option<(u16, u16, f32)>; 8], 
+    c: (usize, usize, usize), color: Color, depthMap: &mut HashMap<(u16, u16), f32>
 ) -> std::io::Result<()> {
 
-    if let (Some((x0, y0)), Some((x1, y1)), Some((x2, y2))) =
+    if let (Some((x0, y0, z0)), Some((x1, y1, z1)), Some((x2, y2, z2))) =
         (projected[c.0], projected[c.1], projected[c.2])
     {
         let x0 = x0 as f32;
@@ -145,11 +146,16 @@ fn draw_faces(
         let maxx = x2.max(x0.max(x1));
         let maxy = y2.max(y0.max(y1));
 
+        let maxz = z2.max(z0.max(z1));
+        // let minz = z2.max(z0.max(z1));
+
         let dx = maxx - minx;
         let dy = maxy - miny;
+        // let dz = maxz - minz;
 
         let steps = dx.abs() as usize;
         let steps1 = dy.abs() as usize;
+        // let steps2: f32 = dz.abs();
 
         for i in 0..=steps {
             for i1 in 0..=steps1 {
@@ -161,6 +167,16 @@ fn draw_faces(
                 if !(in_triangle((x,y), (x0,y0), (x1,y1), (x2,y2))) {
                     continue;
                 }
+
+                // dont draw if a pixel with less depth has already beeen drawn
+                // sets to infinity if (x,y) isnt a valid entry
+                let d = depthMap.entry((x.round() as u16,y.round() as u16)).or_insert(f32::INFINITY);
+                if maxz > *d {
+                    continue;
+                }
+
+                *d = maxz;
+
                 queue!(
                     stdout,
                     cursor::MoveTo(x.round() as u16, y.round() as u16),
@@ -197,7 +213,7 @@ fn main() -> std::io::Result<()> {
     // let height: u16;
     // let mut buffer: Vec<Vec<u8>> = vec![vec![b'+';width.into()]; height.into()];
     
-    let mut depthMap: HashMap<(usize, usize), f32> = HashMap::new();
+    let mut depthMap: HashMap<(u16, u16), f32> = HashMap::new();
     let mut stdout = stdout();
     let (width, height) = size()?;
     thread::sleep(Duration::from_millis(1000));
@@ -229,21 +245,22 @@ fn main() -> std::io::Result<()> {
         }
 
         for &(a, b) in &EDGES {
-            if let (Some((x0, y0)), Some((x1, y1))) = (projected[a], projected[b]) {
+            if let (Some((x0, y0, _z0)), Some((x1, y1, _z1))) = (projected[a], projected[b]) {
                 draw_line(&mut stdout, x0, y0, x1, y1, a ,b)?;
             }
         }
 
         //front face
-        draw_faces(&mut stdout, &projected, (0,1,2), Color::Red, &depthMap)?;
-        draw_faces(&mut stdout, &projected, (1,2,3), Color::Blue, &depthMap)?;
+        draw_faces(&mut stdout, &projected, (0,1,2), Color::Red, &mut depthMap)?;
+        draw_faces(&mut stdout, &projected, (1,2,3), Color::Blue, &mut depthMap)?;
         //back face
-        draw_faces(&mut stdout, &projected, (4,5,6), Color::Green, &depthMap)?;
-        draw_faces(&mut stdout, &projected, (5,6,7), Color::DarkGreen, &depthMap)?;
+        draw_faces(&mut stdout, &projected, (4,5,6), Color::Green, &mut depthMap)?;
+        draw_faces(&mut stdout, &projected, (5,6,7), Color::DarkGreen, &mut depthMap)?;
 
 
         it += 1.0;
         stdout.flush()?;
+        depthMap.clear(); // reset depth map for new draw
         thread::sleep(Duration::from_millis(1000 / FPS));
     }
 }
