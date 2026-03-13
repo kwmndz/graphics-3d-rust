@@ -126,7 +126,7 @@ fn in_triangle(pt: (f32, f32), v1: (f32, f32), v2: (f32, f32), v3: (f32, f32)) -
 
 fn draw_faces(
     stdout: &mut std::io::Stdout, projected: &[Option<(u16, u16, f32)>; 8], 
-    c: (usize, usize, usize), color: Color, depthMap: &mut HashMap<(u16, u16), f32>
+    c: (usize, usize, usize), color: Color, depth_map: &mut HashMap<(u16, u16), f32>
 ) -> std::io::Result<()> {
 
     if let (Some((x0, y0, z0)), Some((x1, y1, z1)), Some((x2, y2, z2))) =
@@ -170,7 +170,7 @@ fn draw_faces(
 
                 // dont draw if a pixel with less depth has already beeen drawn
                 // sets to infinity if (x,y) isnt a valid entry
-                let d = depthMap.entry((x.round() as u16,y.round() as u16)).or_insert(f32::INFINITY);
+                let d = depth_map.entry((x.round() as u16,y.round() as u16)).or_insert(f32::INFINITY);
                 if maxz > *d {
                     continue;
                 }
@@ -180,8 +180,8 @@ fn draw_faces(
                 queue!(
                     stdout,
                     cursor::MoveTo(x.round() as u16, y.round() as u16),
-                    // style::PrintStyledContent("█".with(color))
-                    style::PrintStyledContent("@".with(color))
+                    style::PrintStyledContent("█".with(color))
+                    // style::PrintStyledContent("@".with(color))
                 )?;
             }
         }
@@ -213,7 +213,7 @@ fn main() -> std::io::Result<()> {
     // let height: u16;
     // let mut buffer: Vec<Vec<u8>> = vec![vec![b'+';width.into()]; height.into()];
     
-    let mut depthMap: HashMap<(u16, u16), f32> = HashMap::new();
+    let mut depth_map: HashMap<(u16, u16), f32> = HashMap::new();
     let mut stdout = stdout();
     let (width, height) = size()?;
     thread::sleep(Duration::from_millis(1000));
@@ -225,7 +225,7 @@ fn main() -> std::io::Result<()> {
 
     const A: f32 = 25.0;
     const B: f32 = 75.0;
-    const C: f32 = 0.0;
+    const C: f32 = 25.0;
 
     rotation_matrix(&mut rot, A, B, C);
 
@@ -235,8 +235,8 @@ fn main() -> std::io::Result<()> {
 
     loop {
         execute!(stdout, Clear(ClearType::All))?;
+        rotation_matrix(&mut rot, A + it, B + it * 0.73, C + it * 1.31);
         for (i, v) in CORNERS.iter().enumerate() {
-            rotation_matrix(&mut rot, A+it, B+(it/2.0), C);
             let rotated = matrix_mult(&rot, v);
             let Vector([x, y, z]) = rotated;
 
@@ -244,23 +244,40 @@ fn main() -> std::io::Result<()> {
             projected[i] = convert_to_screen(&shifted, width as f32, height as f32);
         }
 
+        /*
         for &(a, b) in &EDGES {
             if let (Some((x0, y0, _z0)), Some((x1, y1, _z1))) = (projected[a], projected[b]) {
                 draw_line(&mut stdout, x0, y0, x1, y1, a ,b)?;
             }
-        }
+        } */
 
         //front face
-        draw_faces(&mut stdout, &projected, (0,1,2), Color::Red, &mut depthMap)?;
-        draw_faces(&mut stdout, &projected, (1,2,3), Color::Blue, &mut depthMap)?;
+        draw_faces(&mut stdout, &projected, (0,1,2), Color::Red, &mut depth_map)?;
+        draw_faces(&mut stdout, &projected, (1,2,3), Color::DarkRed, &mut depth_map)?;
         //back face
-        draw_faces(&mut stdout, &projected, (4,5,6), Color::Green, &mut depthMap)?;
-        draw_faces(&mut stdout, &projected, (5,6,7), Color::DarkGreen, &mut depthMap)?;
+        draw_faces(&mut stdout, &projected, (4,5,6), Color::Green, &mut depth_map)?;
+        draw_faces(&mut stdout, &projected, (5,6,7), Color::DarkGreen, &mut depth_map)?;
+
+        //connecting face 1 (top)
+        draw_faces(&mut stdout, &projected, (0,1,4), Color::DarkBlue, &mut depth_map)?;
+        draw_faces(&mut stdout, &projected, (1,4,5), Color::Blue, &mut depth_map)?;
+
+        // connecting face 2 (bottom)
+        draw_faces(&mut stdout, &projected, (2,3,6), Color::Cyan, &mut depth_map)?;
+        draw_faces(&mut stdout, &projected, (3,6,7), Color::DarkCyan, &mut depth_map)?;
+
+        //connecting face 3 (right side)
+        draw_faces(&mut stdout, &projected, (0,2,4), Color::Magenta, &mut depth_map)?;
+        draw_faces(&mut stdout, &projected, (2,4,6), Color::DarkMagenta, &mut depth_map)?;
+
+        // connecting face 4 (left side)
+        draw_faces(&mut stdout, &projected, (1,3,5), Color::Yellow, &mut depth_map)?;
+        draw_faces(&mut stdout, &projected, (3,5,7), Color::DarkYellow, &mut depth_map)?;
 
 
-        it += 1.0;
+        it += 1.2;
         stdout.flush()?;
-        depthMap.clear(); // reset depth map for new draw
+        depth_map.clear(); // reset depth map for new draw
         thread::sleep(Duration::from_millis(1000 / FPS));
     }
 }
