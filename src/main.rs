@@ -1,10 +1,11 @@
 use std::io::{stdout, Write};
 use std::thread;
 use std::time::Duration;
+use std::collections::HashMap;
 
 use crossterm::{
     execute,
-    style::{self, Stylize},
+    style::{self, Stylize, Color},
     terminal::{Clear,ClearType, size},
     cursor, queue
 };
@@ -123,11 +124,12 @@ fn in_triangle(pt: (f32, f32), v1: (f32, f32), v2: (f32, f32), v3: (f32, f32)) -
 }
 
 fn draw_faces(
-    stdout: &mut std::io::Stdout, projected: &[Option<(u16, u16)>; 8]
+    stdout: &mut std::io::Stdout, projected: &[Option<(u16, u16)>; 8], 
+    c: (usize, usize, usize), color: Color, depthMap: &mut HashMap<(usize, usize), f32>
 ) -> std::io::Result<()> {
 
     if let (Some((x0, y0)), Some((x1, y1)), Some((x2, y2))) =
-        (projected[0], projected[1], projected[2])
+        (projected[c.0], projected[c.1], projected[c.2])
     {
         let x0 = x0 as f32;
         let y0 = y0 as f32;
@@ -162,8 +164,8 @@ fn draw_faces(
                 queue!(
                     stdout,
                     cursor::MoveTo(x.round() as u16, y.round() as u16),
-                    // style::PrintStyledContent("█".magenta())
-                    style::PrintStyledContent("@".red())
+                    // style::PrintStyledContent("█".with(color))
+                    style::PrintStyledContent("@".with(color))
                 )?;
             }
         }
@@ -195,12 +197,13 @@ fn main() -> std::io::Result<()> {
     // let height: u16;
     // let mut buffer: Vec<Vec<u8>> = vec![vec![b'+';width.into()]; height.into()];
     
+    let mut depthMap: HashMap<(usize, usize), f32> = HashMap::new();
     let mut stdout = stdout();
     let (width, height) = size()?;
     thread::sleep(Duration::from_millis(1000));
     execute!(stdout, Clear(ClearType::All), cursor::Hide)?;
 
-    let mut projected: [Option<(u16, u16)>; 8] = [None; 8];
+    let mut projected: [Option<(u16, u16, f32)>; 8] = [None; 8];
 
     let mut rot = Matrix([[0.0; 3]; 3]);
 
@@ -231,7 +234,13 @@ fn main() -> std::io::Result<()> {
             }
         }
 
-        draw_faces(&mut stdout, &projected)?;
+        //front face
+        draw_faces(&mut stdout, &projected, (0,1,2), Color::Red, &depthMap)?;
+        draw_faces(&mut stdout, &projected, (1,2,3), Color::Blue, &depthMap)?;
+        //back face
+        draw_faces(&mut stdout, &projected, (4,5,6), Color::Green, &depthMap)?;
+        draw_faces(&mut stdout, &projected, (5,6,7), Color::DarkGreen, &depthMap)?;
+
 
         it += 1.0;
         stdout.flush()?;
