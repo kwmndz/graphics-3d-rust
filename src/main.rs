@@ -52,6 +52,12 @@ fn rotation_matrix(m: &mut Matrix, a: f32, b:f32, c:f32) {
 fn convert_to_screen(v: &Vector, w: f32, h: f32) -> Option<(u16, u16, f32)> {
     let [x, y, z] = v.0;
     let scale = 20.0;
+
+    // any z closer than near should be skipped
+    // z == 0 represents camera/observer
+    if z < NEAR {
+        return None;
+    }
     let ooz = 1.0 / z;
 
     let sx = x * ooz * scale + w * 0.5;
@@ -141,26 +147,28 @@ fn draw_faces(
         let x2 = x2 as f32;
         let y2 = y2 as f32;
 
+        // back-face culling: signed area of projected triangle.
+        // negative = front-facing (CW in screen y-down), non-negative = back-facing or degenerate.
+        let total_area = sign((x0, y0), (x1, y1), (x2, y2));
+        if total_area >= 0.0 {
+            return Ok(());
+        }
+
         let minx = x2.min(x0.min(x1));
         let miny = y2.min(y0.min(y1));
         let maxx = x2.max(x0.max(x1));
         let maxy = y2.max(y0.max(y1));
 
-        let maxz = z2.max(z0.max(z1));
-        // let minz = z2.max(z0.max(z1));
-
         let dx = maxx - minx;
         let dy = maxy - miny;
-        // let dz = maxz - minz;
 
         let steps = dx.abs() as usize;
         let steps1 = dy.abs() as usize;
-        // let steps2: f32 = dz.abs();
 
         for i in 0..=steps {
             for i1 in 0..=steps1 {
-                let t = i as f32 / steps as f32;
-                let t1 = i1 as f32 / steps1 as f32;
+                let t = if steps == 0 { 0.0 } else { i as f32 / steps as f32 };
+                let t1 = if steps1 == 0 { 0.0 } else { i1 as f32 / steps1 as f32 };
                 let x = minx + dx * t;
                 let y = miny + dy * t1;
 
@@ -168,14 +176,23 @@ fn draw_faces(
                     continue;
                 }
 
+                // get the z value of each pixel
+                // based off the weighted value of the original 3 z-vals
+                let w0 = sign((x,y), (x1,y1), (x2,y2)) / total_area;
+                let w1 = sign((x0,y0), (x,y), (x2,y2)) / total_area;
+                let w2 = sign((x0,y0), (x1,y1), (x,y)) / total_area;
+
+                // w0+w1+w2 == 1 for all points inside triangle
+                let pixel_z = w0*z0 + w1*z1 + w2*z2;
+
                 // dont draw if a pixel with less depth has already beeen drawn
                 // sets to infinity if (x,y) isnt a valid entry
                 let d = depth_map.entry((x.round() as u16,y.round() as u16)).or_insert(f32::INFINITY);
-                if maxz > *d {
+                if pixel_z > *d {
                     continue;
                 }
 
-                *d = maxz;
+                *d = pixel_z;
 
                 queue!(
                     stdout,
@@ -190,15 +207,19 @@ fn draw_faces(
     Ok(())
 } 
 
+// represents the value at which a pixel is trying to be drawn to close 
+// aka the cutoff for drawing pixels (in the z-axis)
+const NEAR: f32 = 0.1;
+
 const CORNERS: [Vector; 8] = [
-    Vector([1.0, 1.0, 1.0]), // 0
-    Vector([-1.0, 1.0, 1.0]), // 1
-    Vector([1.0, -1.0, 1.0]), // 2
-    Vector([-1.0, -1.0, 1.0]), // 3 ---
-    Vector([1.0, 1.0, -1.0]), // 4
-    Vector([-1.0, 1.0, -1.0]), // 5
-    Vector([1.0, -1.0, -1.0]), // 6
-    Vector([-1.0, -1.0, -1.0]) // 7 ---
+    Vector([1.0, 1.0, -1.0]), // 0
+    Vector([-1.0, 1.0, -1.0]), // 1
+    Vector([1.0, -1.0, -1.0]), // 2
+    Vector([-1.0, -1.0, -1.0]), // 3 ---
+    Vector([1.0, 1.0, 1.0]), // 4
+    Vector([-1.0, 1.0, 1.0]), // 5
+    Vector([1.0, -1.0, 1.0]), // 6
+    Vector([-1.0, -1.0, 1.0]) // 7 ---
 ];
 
 const EDGES: [(usize, usize); 12] = [
@@ -209,9 +230,6 @@ const EDGES: [(usize, usize); 12] = [
 
 fn main() -> std::io::Result<()> {
 
-    // let width: u16;
-    // let height: u16;
-    // let mut buffer: Vec<Vec<u8>> = vec![vec![b'+';width.into()]; height.into()];
     
     let mut depth_map: HashMap<(u16, u16), f32> = HashMap::new();
     let mut stdout = stdout();
@@ -251,28 +269,28 @@ fn main() -> std::io::Result<()> {
             }
         } */
 
-        //front face
-        draw_faces(&mut stdout, &projected, (0,1,2), Color::Red, &mut depth_map)?;
-        draw_faces(&mut stdout, &projected, (1,2,3), Color::DarkRed, &mut depth_map)?;
-        //back face
-        draw_faces(&mut stdout, &projected, (4,5,6), Color::Green, &mut depth_map)?;
+        // front face (z=-1, outward normal = -z)
+        draw_faces(&mut stdout, &projected, (0,1,3), Color::Red, &mut depth_map)?;
+        draw_faces(&mut stdout, &projected, (0,3,2), Color::DarkRed, &mut depth_map)?;
+        // back face (z=+1, outward normal = +z)
+        draw_faces(&mut stdout, &projected, (5,4,6), Color::Green, &mut depth_map)?;
         draw_faces(&mut stdout, &projected, (5,6,7), Color::DarkGreen, &mut depth_map)?;
 
-        //connecting face 1 (top)
-        draw_faces(&mut stdout, &projected, (0,1,4), Color::DarkBlue, &mut depth_map)?;
-        draw_faces(&mut stdout, &projected, (1,4,5), Color::Blue, &mut depth_map)?;
+        // top face (y=+1, outward normal = +y)
+        draw_faces(&mut stdout, &projected, (0,4,5), Color::DarkBlue, &mut depth_map)?;
+        draw_faces(&mut stdout, &projected, (0,5,1), Color::Blue, &mut depth_map)?;
 
-        // connecting face 2 (bottom)
-        draw_faces(&mut stdout, &projected, (2,3,6), Color::Cyan, &mut depth_map)?;
-        draw_faces(&mut stdout, &projected, (3,6,7), Color::DarkCyan, &mut depth_map)?;
+        // bottom face (y=-1, outward normal = -y)
+        draw_faces(&mut stdout, &projected, (2,3,7), Color::Cyan, &mut depth_map)?;
+        draw_faces(&mut stdout, &projected, (2,7,6), Color::DarkCyan, &mut depth_map)?;
 
-        //connecting face 3 (right side)
-        draw_faces(&mut stdout, &projected, (0,2,4), Color::Magenta, &mut depth_map)?;
-        draw_faces(&mut stdout, &projected, (2,4,6), Color::DarkMagenta, &mut depth_map)?;
+        // right face (x=+1, outward normal = +x)
+        draw_faces(&mut stdout, &projected, (4,0,2), Color::Magenta, &mut depth_map)?;
+        draw_faces(&mut stdout, &projected, (4,2,6), Color::DarkMagenta, &mut depth_map)?;
 
-        // connecting face 4 (left side)
-        draw_faces(&mut stdout, &projected, (1,3,5), Color::Yellow, &mut depth_map)?;
-        draw_faces(&mut stdout, &projected, (3,5,7), Color::DarkYellow, &mut depth_map)?;
+        // left face (x=-1, outward normal = -x)
+        draw_faces(&mut stdout, &projected, (1,5,7), Color::Yellow, &mut depth_map)?;
+        draw_faces(&mut stdout, &projected, (1,7,3), Color::DarkYellow, &mut depth_map)?;
 
 
         it += 1.2;
