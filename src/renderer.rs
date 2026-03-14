@@ -97,7 +97,7 @@ pub fn draw_face(
     projected: &[Option<(u16, u16, f32)>; 8],
     c: (usize, usize, usize),
     color: Color,
-    depth_map: &mut Vec<f32>,
+    depth_map: &mut [f32],
     width: u16,
 ) {
     if let (Some((x0, y0, z0)), Some((x1, y1, z1)), Some((x2, y2, z2))) =
